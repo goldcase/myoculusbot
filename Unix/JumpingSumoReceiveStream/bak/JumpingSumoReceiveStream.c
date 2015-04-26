@@ -45,7 +45,6 @@
 #include <string.h>
 #include <unistd.h>
 #include <signal.h>
-#include <curses.h>
 
 #include <libARSAL/ARSAL.h>
 #include <libARSAL/ARSAL_Print.h>
@@ -56,7 +55,7 @@
 #include <libARStream/ARStream.h>
 
 #include "JumpingSumoReceiveStream.h"
-#include "ihm.h"
+
 /*****************************************
  *
  *             define :
@@ -75,11 +74,10 @@
 #define JS_NET_DC_ACK_ID 126
 #define JS_NET_DC_VIDEO_ID 125
 
-#define ERROR_STR_LENGTH 2048
 #define DISPLAY_WITH_FFPLAY 1
 
 /*****************************************
- 
+ *
  *             implementation :
  *
  *****************************************/
@@ -153,28 +151,7 @@ static ARNETWORK_IOBufferParam_t d2cParams[] = {
     }
 };
 static const size_t numD2cParams = sizeof(d2cParams) / sizeof(ARNETWORK_IOBufferParam_t);
-static int commandBufferIds[] = {
-    JS_NET_DC_NONACK_ID,
-    JS_NET_DC_ACK_ID,
-    JS_NET_DC_VIDEO_ID,
-};
-static const size_t numOfCommandBufferIds = sizeof(commandBufferIds) / sizeof(int);
-    
-    static int idToIndex(ARNETWORK_IOBufferParam_t* params, size_t num_params, int id)
-    {
-        int i = 0;
-        for (i = 0; i < num_params; i ++)
-        {
-            if (params[i].ID == id)
-            {
-                return i;
-            }
-        }
-        return -1;
-    }
-    
-    int gIHMRun = 1;
-    char gErrorStr[ERROR_STR_LENGTH];
+
 int main (int argc, char *argv[])
 {
     /* local declarations */
@@ -186,22 +163,12 @@ int main (int argc, char *argv[])
 
     ARSAL_PRINT(ARSAL_PRINT_INFO, TAG, "-- Jumping Sumo Receive Video Stream --");
     
-    IHM_t *ihm = IHM_New (&onInputEvent);
-    if (ihm != NULL)
-    {
-        gErrorStr[0] = '\0';
-        ARSAL_Print_SetCallback (customPrintCallback); //use a custom callback to print, for not disturb ncurses IHM
-        
-        IHM_PrintHeader(ihm, "-- Jumping Sumo Piloting --");
-        registerARCommandsCallbacks (ihm);
-    }
-
     if (DISPLAY_WITH_FFPLAY)
     {
         // fork the process to launch ffplay
         if ((child = fork()) == 0)
         {
-            execlp("bash", "bash", "-c", "ffplay -i video_fifo -f mjpeg &> ~/fuck", NULL);
+            execlp("ffplay", "ffplay", "-i", "video_fifo", "-f", "mjpeg", NULL);
             ARSAL_PRINT(ARSAL_PRINT_ERROR, TAG, "Missing avplay, you will not see the video. Please install avplay.");
             return -1;
         }
@@ -238,22 +205,9 @@ int main (int argc, char *argv[])
         jsManager->videoTxThread = NULL;
         jsManager->d2cPort = JS_D2C_PORT;
         jsManager->c2dPort = JS_C2D_PORT; //jsManager->c2dPort = 0; // Should be read from json
-        
-        jsManager->looperThread = NULL;
-        jsManager->readerThreads = NULL;
-        jsManager->readerThreadsData = NULL;
-
-        jsManager->run=1;
-
-        jsManager->dataPCMD.flag = 0;
-        jsManager->dataPCMD.speed = 0;
-        jsManager->dataPCMD.turn = 0;
-
-        IHM_setCustomData(ihm, jsManager);
-
         jsManager->arstreamAckDelay = 0; // Should be read from json
         jsManager->arstreamFragSize = 65000; // Should be read from json
-        jsManager->arstreamFragNb   = 1; // Should be read from json
+        jsManager->arstreamFragNb   = 4; // Should be read from json
         
         if (DISPLAY_WITH_FFPLAY)
         {
@@ -289,37 +243,7 @@ int main (int argc, char *argv[])
     {
         failed = startVideo (jsManager);
     }
-    if (!failed)
-    {
-        // Create and start looper thread.
-        if (ARSAL_Thread_Create(&(jsManager->looperThread), looperRun, jsManager) != 0)
-        {
-            ARSAL_PRINT(ARSAL_PRINT_ERROR, TAG, "Creation of looper thread failed.");
-            failed = 1;
-        }
-    }
-    if (!failed)
-    {
-        // allocate reader thread array.
-        jsManager->readerThreads = calloc(numOfCommandBufferIds, sizeof(ARSAL_Thread_t));
-        
-        if (jsManager->readerThreads == NULL)
-        {
-            ARSAL_PRINT(ARSAL_PRINT_ERROR, TAG, "Allocation of reader threads failed.");
-            failed = 1;
-        }
-    }
-    if (!failed)
-    {
-        // allocate reader thread data array.
-        jsManager->alManager = calloc(numOfCommandBufferIds, sizeof(READER_THREAD_DATA_t));
-        
-        if (jsManager->alManager == NULL)
-        {
-            ARSAL_PRINT(ARSAL_PRINT_ERROR, TAG, "Allocation of reader threads data failed.");
-            failed = 1;
-        }
-    }
+
     if (!failed)
     {
         int cmdSend = 0;
@@ -328,101 +252,10 @@ int main (int argc, char *argv[])
 
         sleep(30);
     }
-    
-    if (!failed)
-    {
-        // allocate reader thread data array.
-        jsManager->readerThreadsData = calloc(numOfCommandBufferIds, sizeof(READER_THREAD_DATA_t));
-        
-        if (jsManager->readerThreadsData == NULL)
-        {
-            ARSAL_PRINT(ARSAL_PRINT_ERROR, TAG, "Allocation of reader threads data failed.");
-            failed = 1;
-        }
-    }
-    if (!failed)
-    {
-        // Create and start reader threads.
-        int readerThreadIndex = 0;
-        for (readerThreadIndex = 0 ; readerThreadIndex < numOfCommandBufferIds ; readerThreadIndex++)
-        {
-            // initialize reader thread data
-            printf("%d\n", jsManager->readerThreadsData[readerThreadIndex].readerBufferId);
-            jsManager->readerThreadsData[readerThreadIndex].readerBufferId = commandBufferIds[readerThreadIndex];
-            jsManager->readerThreadsData[readerThreadIndex].jsManager = jsManager;
 
-            if (ARSAL_Thread_Create(&(jsManager->readerThreads[readerThreadIndex]), readerRun, &(jsManager->readerThreadsData[readerThreadIndex])) != 0)
-            {
-                ARSAL_PRINT(ARSAL_PRINT_ERROR, TAG, "Creation of reader thread failed.");
-                failed = 1;
-            }
-        }
-    }
-    
-    if (!failed)
-    {
-        IHM_PrintInfo(ihm, "Running ... (Arrow keys to move ; Spacebar to jump ; 'q' to quit)");
-        
-        while (gIHMRun)
-        {
-            usleep(50);
-        }
-        
-        IHM_PrintInfo(ihm, "Disconnecting ...");
-    }
 
     if (jsManager != NULL)
     {
-        jsManager->run = 0; // break threads loops
-        
-        // Stop looper Thread
-        if (jsManager->looperThread != NULL)
-        {
-            ARSAL_Thread_Join(jsManager->looperThread, NULL);
-            ARSAL_Thread_Destroy(&(jsManager->looperThread));
-            jsManager->looperThread = NULL;
-        }
-        
-        if (jsManager->readerThreads != NULL)
-        {
-            // Stop reader Threads
-            int readerThreadIndex = 0;
-            for (readerThreadIndex = 0 ; readerThreadIndex < numD2cParams ; readerThreadIndex++)
-            {
-                if (jsManager->readerThreads[readerThreadIndex] != NULL)
-                {
-                    ARSAL_Thread_Join(jsManager->readerThreads[readerThreadIndex], NULL);
-                    ARSAL_Thread_Destroy(&(jsManager->readerThreads[readerThreadIndex]));
-                    jsManager->readerThreads[readerThreadIndex] = NULL;
-                }
-            }
-            
-            // free reader thread array
-            free (jsManager->readerThreads);
-            jsManager->readerThreads = NULL;
-        }
-        
-        if (jsManager->readerThreadsData != NULL)
-        {
-            // free reader thread data array
-            free (jsManager->readerThreadsData);
-            jsManager->readerThreadsData = NULL;
-        }
-        
-        if (ihm != NULL)
-        {
-            unregisterARCommandsCallbacks ();
-            
-            IHM_Delete (&ihm);
-            ARSAL_Print_SetCallback (NULL); //reset the callback to print
-            
-            /* print error */
-            if (gErrorStr[0] != '\0')
-            {
-                //ARSAL_PRINT(ARSAL_PRINT_ERROR, TAG, "%s", gErrorStr);
-                printf("Error: %s", gErrorStr);
-            }
-        }        
         /* stop */
         stopVideo (jsManager);
         stopNetwork (jsManager);
@@ -582,112 +415,12 @@ void stopNetwork (JS_MANAGER_t *jsManager)
     ARNETWORK_Manager_Delete(&(jsManager->netManager));
     ARNETWORKAL_Manager_Delete(&(jsManager->alManager));
 }
-void registerARCommandsCallbacks (IHM_t *ihm)
-{
-    ARCOMMANDS_Decoder_SetCommonCommonStateBatteryStateChangedCallback(batteryStateChangedCallback, ihm);
-}
 
-void unregisterARCommandsCallbacks ()
-{
-    ARCOMMANDS_Decoder_SetCommonCommonStateBatteryStateChangedCallback (NULL, NULL);
-}
 void onDisconnectNetwork (ARNETWORK_Manager_t *manager, ARNETWORKAL_Manager_t *alManager, void *customData)
 {
     ARSAL_PRINT(ARSAL_PRINT_DEBUG, TAG, "onDisconnectNetwork ...");
-    gIHMRun = 0;
-}
-void *looperRun (void* data)
-{
-    JS_MANAGER_t *jsmanager = (JS_MANAGER_t *)data;
-    
-    if(jsmanager != NULL)
-    {
-        while (jsmanager->run)
-        {
-            sendPCMD(jsmanager);
-            
-            usleep(50000);
-        }
-    }
-
-    return NULL;
 }
 
-void *readerRun (void* data)
-{
-    JS_MANAGER_t *jsmanager = NULL;
-    int bufferId = 0;
-    int failed = 0;
-    
-    // Allocate some space for incoming data.
-    const size_t maxLength = 128 * 1024;
-    void *readData = malloc (maxLength);
-    if (readData == NULL)
-    {
-        failed = 1;
-    }
-    
-    if (!failed)
-    {
-        // get thread data.
-        if (data != NULL)
-        {
-            bufferId = ((READER_THREAD_DATA_t *)data)->readerBufferId;
-            jsmanager = ((READER_THREAD_DATA_t *)data)->jsManager;
-            
-            if (jsmanager == NULL)
-            {
-                failed = 1;
-            }
-        }
-        else
-        {
-            failed = 1;
-        }
-    }
-    
-    if (!failed)
-    {
-        while (jsmanager->run)
-        {
-            eARNETWORK_ERROR netError = ARNETWORK_OK;
-            int length = 0;
-            int skip = 0;
-            
-            // read data
-            netError = ARNETWORK_Manager_ReadDataWithTimeout (jsmanager->netManager, bufferId, readData, maxLength, &length, 1000);
-            if (netError != ARNETWORK_OK)
-            {
-                if (netError != ARNETWORK_ERROR_BUFFER_EMPTY)
-                {
-                    ARSAL_PRINT(ARSAL_PRINT_ERROR, TAG, "ARNETWORK_Manager_ReadDataWithTimeout () failed : %s", ARNETWORK_Error_ToString(netError));
-                }
-                skip = 1;
-            }
-            
-            if (!skip)
-            {
-                // Forward data to the CommandsManager
-                eARCOMMANDS_DECODER_ERROR cmdError = ARCOMMANDS_DECODER_OK;
-                cmdError = ARCOMMANDS_Decoder_DecodeBuffer ((uint8_t *)readData, length);
-                if ((cmdError != ARCOMMANDS_DECODER_OK) && (cmdError != ARCOMMANDS_DECODER_ERROR_NO_CALLBACK))
-                {
-                    char msg[128];
-                    ARCOMMANDS_Decoder_DescribeBuffer ((uint8_t *)readData, length, msg, sizeof(msg));
-                    ARSAL_PRINT(ARSAL_PRINT_ERROR, TAG, "ARCOMMANDS_Decoder_DecodeBuffer () failed : %d %s", cmdError, msg);
-                }
-            }
-        }
-    }
-    
-    if (readData != NULL)
-    {
-        free (readData);
-        readData = NULL;
-    }
-    
-    return NULL;
-}
 int startVideo(JS_MANAGER_t *jsManager)
 {
     int failed = 0;
@@ -823,53 +556,6 @@ uint8_t *frameCompleteCallback (eARSTREAM_READER_CAUSE cause, uint8_t *frame, ui
     return ret;
 }
 
-int sendPCMD(JS_MANAGER_t *jsmanager)
-{
-    int sentStatus = 1;
-    u_int8_t cmdBuffer[128];
-    int32_t cmdSize = 0;
-    eARCOMMANDS_GENERATOR_ERROR cmdError;
-    eARNETWORK_ERROR netError = ARNETWORK_ERROR;
-    
-    // Send Posture command
-    cmdError = ARCOMMANDS_Generator_GenerateJumpingSumoPilotingPCMD(cmdBuffer, sizeof(cmdBuffer), &cmdSize, jsmanager->dataPCMD.flag, jsmanager->dataPCMD.speed, jsmanager->dataPCMD.turn);
-    if (cmdError == ARCOMMANDS_GENERATOR_OK)
-    {
-        // The commands sent in loop should be sent to a buffer not acknowledged ; here JS_NET_CD_NONACK_ID
-        netError = ARNETWORK_Manager_SendData(jsmanager->netManager, JS_NET_CD_NONACK_ID, cmdBuffer, cmdSize, NULL, &(arnetworkCmdCallback), 1);
-    }
-    
-    if ((cmdError != ARCOMMANDS_GENERATOR_OK) || (netError != ARNETWORK_OK))
-    {
-        sentStatus = 0;
-    }
-    
-    return sentStatus;
-}
-
-int sendJump(JS_MANAGER_t *jsmanager)
-{
-    int sentStatus = 1;
-    u_int8_t cmdBuffer[128];
-    int32_t cmdSize = 0;
-    eARCOMMANDS_GENERATOR_ERROR cmdError;
-    eARNETWORK_ERROR netError = ARNETWORK_ERROR;
-    
-    // Send Posture command
-    cmdError = ARCOMMANDS_Generator_GenerateJumpingSumoAnimationsJump(cmdBuffer, sizeof(cmdBuffer), &cmdSize, ARCOMMANDS_JUMPINGSUMO_ANIMATIONS_JUMP_TYPE_HIGH);
-    if (cmdError == ARCOMMANDS_GENERATOR_OK)
-    {
-        // The commands sent by event should be sent to an buffer acknowledged  ; here JS_NET_CD_ACK_ID
-        netError = ARNETWORK_Manager_SendData(jsmanager->netManager, JS_NET_CD_ACK_ID, cmdBuffer, cmdSize, NULL, &(arnetworkCmdCallback), 1);
-    }
-    
-    if ((cmdError != ARCOMMANDS_GENERATOR_OK) || (netError != ARNETWORK_OK))
-    {
-        sentStatus = 0;
-    }
-    
-    return sentStatus;
-}
 int sendBeginStream(JS_MANAGER_t *jsManager)
 {
     int sentStatus = 1;
@@ -878,7 +564,7 @@ int sendBeginStream(JS_MANAGER_t *jsManager)
     eARCOMMANDS_GENERATOR_ERROR cmdError;
     eARNETWORK_ERROR netError = ARNETWORK_ERROR;
     
-    ARSAL_PRINT(ARSAL_PRINT_INFO, TAG, "- Send Streaming Begin\n");
+    ARSAL_PRINT(ARSAL_PRINT_INFO, TAG, "- Send Streaming Begin");
     
     // Send Streaming begin command
     cmdError = ARCOMMANDS_Generator_GenerateJumpingSumoMediaStreamingVideoEnable(cmdBuffer, sizeof(cmdBuffer), &cmdSize, 1);
@@ -889,7 +575,7 @@ int sendBeginStream(JS_MANAGER_t *jsManager)
     
     if ((cmdError != ARCOMMANDS_GENERATOR_OK) || (netError != ARNETWORK_OK))
     {
-        ARSAL_PRINT(ARSAL_PRINT_WARNING, TAG, "Failed to send Streaming command. cmdError:%d netError:%s\n", cmdError, ARNETWORK_Error_ToString(netError));
+        ARSAL_PRINT(ARSAL_PRINT_WARNING, TAG, "Failed to send Streaming command. cmdError:%d netError:%s", cmdError, ARNETWORK_Error_ToString(netError));
         sentStatus = 0;
     }
     
@@ -953,87 +639,4 @@ eARDISCOVERY_ERROR ARDISCOVERY_Connection_ReceiveJsonCallback (uint8_t *dataRx, 
     }
 
     return err;
-}
-void batteryStateChangedCallback (uint8_t percent, void *custom)
-{
-    // callback of changing of battery level
-    
-    IHM_t *ihm = (IHM_t *) custom;
-    
-    if (ihm != NULL)
-    {
-        IHM_PrintBattery (ihm, percent);
-    }
-}
-
-// IHM callbacks: 
-
-void onInputEvent (eIHM_INPUT_EVENT event, void *customData)
-{
-    // Manage IHM input events
-    JS_MANAGER_t *jsmanager = (JS_MANAGER_t *)customData;
-    
-    switch (event)
-    {
-        case IHM_INPUT_EVENT_EXIT:
-            gIHMRun = 0;
-            break;
-        case IHM_INPUT_EVENT_JUMP:
-            if(jsmanager != NULL)
-            {
-                sendJump (jsmanager);
-            }
-            break;
-        case IHM_INPUT_EVENT_FORWARD:
-            if(jsmanager != NULL)
-            {
-                jsmanager->dataPCMD.flag = 1;
-                jsmanager->dataPCMD.speed = 50;
-            }
-            break;
-        case IHM_INPUT_EVENT_BACK:
-            if(jsmanager != NULL)
-            {
-                jsmanager->dataPCMD.flag = 1;
-                jsmanager->dataPCMD.speed = -50;
-            }
-            break;
-        case IHM_INPUT_EVENT_RIGHT:
-            if(jsmanager != NULL)
-            {
-                jsmanager->dataPCMD.flag = 1;
-                jsmanager->dataPCMD.turn = 50;
-            }
-            break;
-        case IHM_INPUT_EVENT_LEFT:
-            if(jsmanager != NULL)
-            {
-                jsmanager->dataPCMD.flag = 1;
-                jsmanager->dataPCMD.turn = -50;
-            }
-            break;
-        case IHM_INPUT_EVENT_NONE:
-            if(jsmanager != NULL)
-            {
-                jsmanager->dataPCMD.flag = 0;
-                jsmanager->dataPCMD.speed = 0;
-                jsmanager->dataPCMD.turn = 0;
-            }
-            break;
-        default:
-            break;
-    }
-}
-int customPrintCallback (eARSAL_PRINT_LEVEL level, const char *tag, const char *format, va_list va)
-{
-    // Custom callback used when ncurses is runing for not disturb the IHM
-    
-    if ((level == ARSAL_PRINT_ERROR) && (strcmp(TAG, tag) == 0))
-    {
-        // save the last Error
-        vsnprintf(gErrorStr, (ERROR_STR_LENGTH - 1), format, va);
-        gErrorStr[ERROR_STR_LENGTH - 1] = '\0';
-    }
-    
-    return 1;
 }

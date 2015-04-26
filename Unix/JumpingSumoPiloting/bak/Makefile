@@ -3,7 +3,7 @@ EXEC_NAME=JumpingSumoPiloting #output filename
 SDK_DIR=../../../ARSDKBuildUtils
 IDIR=./
 CC=gcc
-CFLAGS=-I$(IDIR) -I $(SDK_DIR)/Targets/Unix/Install/include -g
+CFLAGS=-I$(IDIR) -I $(SDK_DIR)/Targets/Unix/Install/include
 
 OBJDIR=obj
 LDIR = $(SDK_DIR)/Targets/Unix/Install/lib

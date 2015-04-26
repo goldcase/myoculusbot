@@ -28,8 +28,9 @@
     OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
     SUCH DAMAGE.
 */
-#ifndef _SDK_EXAMPLE_JS_H_
-#define _SDK_EXAMPLE_JS_H_
+
+#ifndef _JUMPINGSUMO_PILOTING_H_
+#define _JUMPINGSUMO_PILOTING_H_
 
 #include <ihm.h>
 
@@ -46,43 +47,33 @@ typedef struct
 {
     ARNETWORKAL_Manager_t *alManager;
     ARNETWORK_Manager_t *netManager;
-    ARSTREAM_Reader_t *streamReader;
     ARSAL_Thread_t rxThread;
     ARSAL_Thread_t txThread;
-    ARSAL_Thread_t videoTxThread;
-    ARSAL_Thread_t videoRxThread;
     int d2cPort;
     int c2dPort;
-    int arstreamFragSize;
-    int arstreamFragNb;
-    int arstreamAckDelay;
-    uint8_t *videoFrame;
-    uint32_t videoFrameSize;
+    
     ARSAL_Thread_t looperThread;
     ARSAL_Thread_t *readerThreads;
     READER_THREAD_DATA_t *readerThreadsData;
     
     int run;
     JS_PCMD_t dataPCMD;
-    FILE *video_out;
-    int writeImgs;
-    int frameNb;
     
-} JS_MANAGER_t;
+}DEVICE_MANAGER_t;
 
 struct READER_THREAD_DATA_t
 {
-    JS_MANAGER_t *jsManager;
+    DEVICE_MANAGER_t *deviceManager;
     int readerBufferId;
 };
 
-int ardiscoveryConnect (JS_MANAGER_t *jsManager);
+int ardiscoveryConnect (DEVICE_MANAGER_t *deviceManager);
 eARDISCOVERY_ERROR ARDISCOVERY_Connection_SendJsonCallback (uint8_t *dataTx, uint32_t *dataTxSize, void *customData);
 eARDISCOVERY_ERROR ARDISCOVERY_Connection_ReceiveJsonCallback (uint8_t *dataRx, uint32_t dataRxSize, char *ip, void *customData);
 
-int startNetwork (JS_MANAGER_t *jsManager);
+int startNetwork (DEVICE_MANAGER_t *deviceManager);
 void onDisconnectNetwork (ARNETWORK_Manager_t *manager, ARNETWORKAL_Manager_t *alManager, void *customData);
-void stopNetwork (JS_MANAGER_t *jsManager);
+void stopNetwork (DEVICE_MANAGER_t *deviceManager);
 
 void registerARCommandsCallbacks (IHM_t *ihm);
 void unregisterARCommandsCallbacks();
@@ -90,14 +81,10 @@ void unregisterARCommandsCallbacks();
 void *looperRun(void* data);
 void *readerRun(void* data);
 
-int sendJump(JS_MANAGER_t *deviceManager);
-int sendPCMD(JS_MANAGER_t *deviceManager);
+int sendJump(DEVICE_MANAGER_t *deviceManager);
+int sendPCMD(DEVICE_MANAGER_t *deviceManager);
 
-
-int startVideo (JS_MANAGER_t *jsManager);
-uint8_t *frameCompleteCallback (eARSTREAM_READER_CAUSE cause, uint8_t *frame, uint32_t frameSize, int numberOfSkippedFrames, int isFlushFrame, uint32_t *newBufferCapacity, void *custom);
-void stopVideo (JS_MANAGER_t *jsManager);
-
+eARNETWORK_MANAGER_CALLBACK_RETURN arnetworkCmdCallback(int buffer_id, uint8_t *data, void *custom, eARNETWORK_MANAGER_CALLBACK_STATUS cause);
 
 void batteryStateChangedCallback (uint8_t percent, void *custom);
 
@@ -105,9 +92,4 @@ void batteryStateChangedCallback (uint8_t percent, void *custom);
 void onInputEvent (eIHM_INPUT_EVENT event, void *customData);
 int customPrintCallback (eARSAL_PRINT_LEVEL level, const char *tag, const char *format, va_list va);
 
-
-int sendBeginStream(JS_MANAGER_t *jsManager);
-
-eARNETWORK_MANAGER_CALLBACK_RETURN arnetworkCmdCallback(int buffer_id, uint8_t *data, void *custom, eARNETWORK_MANAGER_CALLBACK_STATUS cause);
-
-#endif /* _SDK_EXAMPLE_JS_H_ */
+#endif /* _JUMPINGSUMO_PILOTING_H_ */
